@@ -55,33 +55,43 @@ class Diff implements IteratorAggregate, Countable
      */
     public function filter(string $path, array $report) : array
     {
-        $report['messages'] = isset($this->paths[$path]) ? array_intersect_key(
-            $report['messages'],
-            array_flip($this->paths[$path])
-        ) : [];
-
-        $errors = $warnings = $fixable = 0;
-
-        foreach ($report['messages'] as $line) {
-            foreach ($line as $messages) {
-                foreach ($messages as $message) {
-                    switch ($message['type']) {
-                        case 'ERROR':
-                            $errors++;
-                            break;
-                        case 'WARNING':
-                            $warnings++;
-                            break;
-                    }
-
-                    if ($message['fixable']) {
-                        $fixable++;
-                    }
-                }
-            }
+        if (!isset($this->paths[$path])) {
+            return $this->patchReport($report, [], 0, 0, 0);
         }
 
+        $messages = array_intersect_key(
+            $report['messages'],
+            array_flip($this->paths[$path])
+        );
+
+        $flattened = array_reduce($messages, function (array $carry, array $messages) {
+            return array_merge($carry, ...$messages);
+        }, []);
+
+        return $this->patchReport(
+            $report,
+            $messages,
+            $this->countMessages($flattened, function (array $message) {
+                return $message['type'] === 'ERROR';
+            }),
+            $this->countMessages($flattened, function (array $message) {
+                return $message['type'] === 'WARNING';
+            }),
+            $this->countMessages($flattened, function (array $message) {
+                return $message['fixable'];
+            })
+        );
+    }
+
+    private function countMessages(array $messages, callable $filter)
+    {
+        return count(array_filter($messages, $filter));
+    }
+
+    private function patchReport(array $report, array $messages, int $errors, int $warnings, int $fixable) : array
+    {
         return array_merge($report, [
+            'messages' => $messages,
             'errors' => $errors,
             'warnings' => $warnings,
             'fixable' => $fixable,
